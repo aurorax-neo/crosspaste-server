@@ -60,17 +60,17 @@ pub struct Room {
 
 #[derive(Clone)]
 pub struct Registry {
+    config: Arc<Config>,
     devices: Arc<DashMap<String, Arc<DeviceSession>>>,
     rooms: Arc<DashMap<String, Room>>,
-    config: Arc<Config>,
 }
 
 impl Registry {
     pub fn new(config: Arc<Config>) -> Self {
         Self {
+            config,
             devices: Arc::new(DashMap::new()),
             rooms: Arc::new(DashMap::new()),
-            config,
         }
     }
 
@@ -141,11 +141,8 @@ impl Registry {
             return;
         }
         if let Some((_, session)) = self.devices.remove(app_instance_id) {
-            let pending_keys: Vec<String> = session
-                .pending
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
+            let pending_keys: Vec<String> =
+                session.pending.iter().map(|e| e.key().clone()).collect();
             for key in pending_keys {
                 if let Some((_, pending)) = session.pending.remove(&key) {
                     let _ = pending.responder.send(TunnelFrame::Error {
@@ -217,7 +214,9 @@ impl Registry {
 
         if session.frame_tx.send(frame).is_err() {
             session.pending.remove(&request_id);
-            return Err(RelayError::DeviceOffline(target_app_instance_id.to_string()));
+            return Err(RelayError::DeviceOffline(
+                target_app_instance_id.to_string(),
+            ));
         }
 
         match tokio::time::timeout(self.config.request_timeout(), rx).await {

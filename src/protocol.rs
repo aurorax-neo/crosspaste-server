@@ -1,14 +1,14 @@
-//! Wire protocol between relay and device-side tunnel agents.
+//! Optional tunnel protocol between crosspaste-server and device-side agents.
 //!
-//! Payload bodies are opaque bytes (already E2E encrypted by CrossPaste peers).
-//! The relay never inspects or decrypts them.
+//! The main compatibility path is the central Hub in `hub.rs`; this tunnel is
+//! retained for development and non-standard deployments.
 
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// CrossPaste Sync API version advertised by this relay.
+/// CrossPaste Sync API version advertised by this server.
 pub const SYNC_API_VERSION: i32 = 3;
 pub const PAIRING_VERSION: i32 = 2;
 
@@ -17,7 +17,7 @@ pub const HEADER_APP_INSTANCE_ID: &str = "appInstanceId";
 pub const HEADER_TARGET_APP_INSTANCE_ID: &str = "targetAppInstanceId";
 pub const HEADER_SECURE: &str = "secure";
 pub const HEADER_SYNC_INFO: &str = "crosspaste-sync-info";
-pub const HEADER_AUTH: &str = "x-relay-token";
+pub const HEADER_AUTH: &str = "x-crosspaste-server-token";
 
 /// Known CrossPaste peer HTTP paths (for documentation / allowlist optional use).
 pub const CROSSPASTE_PATHS: &[&str] = &[
@@ -61,8 +61,12 @@ pub enum TunnelFrame {
         relay_version: String,
     },
     /// Either direction keep-alive
-    Ping { ts: i64 },
-    Pong { ts: i64 },
+    Ping {
+        ts: i64,
+    },
+    Pong {
+        ts: i64,
+    },
     /// Relay → Device: execute this HTTP request against the local paste server
     HttpRequest {
         request_id: String,
@@ -90,7 +94,9 @@ pub enum TunnelFrame {
         app_instance_id: String,
     },
     /// Error notice
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,5 +139,15 @@ pub struct HealthResponse {
     pub version: String,
     pub sync_api_version: i32,
     pub online_devices: usize,
+    pub paired_clients: usize,
     pub rooms: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingQrResponse {
+    pub token: u32,
+    pub payload: String,
+    pub png_path: String,
+    pub sync_info: crate::sync_info::SyncInfo,
 }

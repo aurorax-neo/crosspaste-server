@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>CrossPaste Server Console</title>
+  <link rel="stylesheet" href="/admin/app.css">
+</head>
+<body>
+  <div id="toast" role="status"></div>
+
+  <main id="loginView" class="auth-layout">
+    <section class="auth-copy">
+      <div class="logo large">CP</div>
+      <p class="kicker">CROSSPASTE SERVER</p>
+      <h1>CrossPaste 中心服务<br>统一管理设备与同步</h1>
+      <p>集中管理配对设备、同步策略、运行日志与服务安全。所有配置和运行数据持久化存储于本地 SQLite。</p>
+      <div class="auth-features"><span>端到端密钥</span><span>SQLite 持久化</span><span>可选 TOTP MFA</span></div>
+    </section>
+    <section class="auth-panel">
+      <div class="auth-heading"><span class="status-dot"></span><span>服务器管理登录</span></div>
+      <form id="loginForm" class="form-grid">
+        <label>用户名<input name="username" autocomplete="username" value="admin" required></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        <label id="mfaField" hidden>双重验证码<input name="mfaCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
+        <button class="button primary" type="submit">进入控制台</button>
+      </form>
+      <div class="initial-credentials"><strong>安全提示</strong><span>首次登录后必须立即修改密码</span><small>请使用部署时配置或系统管理员提供的登录凭据</small></div>
+    </section>
+  </main>
+
+  <main id="passwordView" class="auth-layout compact" hidden>
+    <section class="auth-copy"><div class="logo large">CP</div><p class="kicker">FIRST LOGIN SECURITY</p><h1>请设置新的管理员密码。</h1><p>首次登录必须完成安全初始化。修改密码后，当前会话将失效并要求重新登录。</p></section>
+    <section class="auth-panel"><h2>创建管理员密码</h2><p class="muted">12-128 位，必须包含大小写字母、数字和特殊字符。</p><form id="passwordForm" class="form-grid"><label>当前密码<input name="currentPassword" type="password" required></label><label>新密码<input name="newPassword" type="password" required></label><label>确认新密码<input name="confirmPassword" type="password" required></label><button class="button primary" type="submit">保存并重新登录</button></form></section>
+  </main>
+
+  <div id="appView" class="console" hidden>
+    <aside class="sidebar">
+      <div class="brand"><div class="logo">CP</div><div><strong>CrossPaste</strong><span>Server Console</span></div></div>
+      <nav>
+        <button class="active" data-page="overview"><i>01</i><span>运行概览</span></button>
+        <button data-page="clients"><i>02</i><span>配对设备</span></button>
+        <button data-page="audit"><i>03</i><span>审计日志</span></button>
+        <button data-page="logs"><i>04</i><span>运行日志</span></button>
+        <button id="settingsMenu" class="nav-parent" type="button" aria-expanded="false"><i>05</i><span>设置中心</span><b>⌄</b></button>
+        <div id="settingsSubnav" class="subnav" hidden>
+          <button data-page="settings"><span>系统设置</span></button>
+          <button data-page="sync"><span>同步策略</span></button>
+          <button data-page="security"><span>安全中心</span></button>
+        </div>
+      </nav>
+      <div class="sidebar-foot"><div><span class="status-dot"></span>服务运行中</div><button id="logoutButton">退出登录</button></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar"><div><p class="kicker">ADMINISTRATION</p><h1 id="pageTitle">运行概览</h1></div><div class="operator"><span id="operatorName">admin</span><small id="operatorSecurity">密码认证</small></div></header>
+
+      <section id="overviewPage" class="page">
+        <div class="metric-grid">
+          <article class="metric blue"><span>已配对设备</span><strong id="pairedCount">0</strong><small>持久化信任关系</small></article>
+          <article class="metric green"><span>在线设备</span><strong id="onlineCount">0</strong><small>45 秒内有心跳或活跃连接</small></article>
+          <article class="metric amber"><span>服务版本</span><strong id="version">-</strong><small>CrossPaste Server</small></article>
+        </div>
+        <div class="dashboard-grid">
+          <article class="card"><div class="card-head"><div><p class="kicker">STORAGE</p><h2>数据持久化</h2></div><span class="tag good">SQLite WAL</span></div><dl class="detail-list"><div><dt>数据库</dt><dd id="databasePath">-</dd></div><div><dt>服务端密钥</dt><dd>已持久化</dd></div><div><dt>文件分块</dt><dd>数据库 + 本地缓存</dd></div></dl></article>
+          <article class="card"><div class="card-head"><div><p class="kicker">SECURITY</p><h2>管理安全</h2></div><span id="mfaOverviewTag" class="tag">MFA 未启用</span></div><p class="card-copy">管理员密码使用 Argon2id 哈希，会话存储于 HttpOnly Cookie。建议生产环境启用 MFA 并置于 HTTPS 反向代理之后。</p><button class="button secondary" data-jump="security">前往安全中心</button></article>
+        </div>
+      </section>
+
+      <section id="syncPage" class="page" hidden>
+        <div class="page-intro"><div><h2>同步策略</h2><p>设置会实时作用于所有客户端请求。</p></div><button id="saveSettings" class="button primary">保存更改</button></div>
+        <article class="card"><div class="card-head"><div><p class="kicker">TRANSPORT</p><h2>传输与限制</h2></div></div><div id="generalSettings" class="setting-list"></div></article>
+        <article class="card"><div class="card-head"><div><p class="kicker">CONTENT TYPES</p><h2>剪贴板类型</h2></div><button id="toggleAllTypes" class="button ghost">全部启用</button></div><div id="typeSettings" class="setting-list two-columns"></div></article>
+      </section>
+
+      <section id="settingsPage" class="page" hidden>
+        <div class="page-intro"><div><h2>系统设置</h2><p>管理服务端运行数据的保留与维护策略。</p></div><button id="saveSystemSettings" class="button primary">保存设置</button></div>
+        <div class="settings-layout">
+          <article class="card"><div class="card-head"><div><p class="kicker">LOG STORAGE</p><h2>运行日志存储</h2></div><span class="tag good">SQLite</span></div><div class="setting-list"><div class="setting-row"><span class="setting-icon">LOG</span><div><strong>日志存储上限</strong><div class="row-meta">超过上限后自动删除最旧记录，修改后立即执行清理。</div></div><div class="number-suffix"><input id="logRetentionCount" type="number" min="1000" max="1000000" step="1000" value="10000"><span>条</span></div></div></div><p class="settings-note">默认保留 10,000 条，适合普通单机部署。高流量环境建议根据磁盘空间调整至 50,000–200,000 条。</p></article>
+          <article class="card"><div class="card-head"><div><p class="kicker">POLICY</p><h2>保留策略说明</h2></div></div><dl class="detail-list"><div><dt>最小值</dt><dd>1,000 条</dd></div><div><dt>默认值</dt><dd>10,000 条</dd></div><div><dt>最大值</dt><dd>1,000,000 条</dd></div><div><dt>清理方式</dt><dd>按时间删除最旧记录</dd></div></dl></article>
+        </div>
+      </section>
+
+      <section id="clientsPage" class="page" hidden>
+        <div class="page-intro"><div><h2>配对设备</h2><p>查看客户端完整信息、在线状态和当前配对请求。</p></div><div class="page-actions"><span id="clientCountTag" class="tag">0 台</span><button id="refreshClients" class="button ghost">刷新设备</button></div></div>
+        <article class="pairing-panel">
+          <div class="pairing-copy"><p class="kicker">PAIRING CENTER</p><h2>添加新设备</h2><p>客户端在局域网发现服务端后会自动产生 6 位配对码，也可以直接扫描二维码添加。</p><button id="createPairing" class="button primary">生成扫码配对码</button></div>
+          <div id="pairingEmpty" class="pairing-empty">等待客户端发起配对</div>
+          <div id="pairingChallenge" class="pairing-challenge" hidden><img id="pairingQr" hidden alt="CrossPaste 配对二维码"><div><span id="pairingType" class="tag">配对请求</span><strong id="pairingCode">------</strong><p id="pairingClient">-</p><small id="pairingCountdown">30 秒后失效</small></div></div>
+        </article>
+        <div id="clientList" class="device-grid"></div>
+      </section>
+
+      <section id="securityPage" class="page" hidden>
+        <div class="page-intro"><div><h2>安全中心</h2><p>管理密码、会话与多因素认证。</p></div><span id="securityMfaTag" class="tag">MFA 未启用</span></div>
+        <div class="security-grid">
+          <article class="card"><div class="card-head"><div><p class="kicker">PASSWORD</p><h2>修改管理员密码</h2></div></div><form id="securityPasswordForm" class="form-grid"><label>当前密码<input name="currentPassword" type="password" required></label><label>新密码<input name="newPassword" type="password" required></label><label>确认新密码<input name="confirmPassword" type="password" required></label><button class="button secondary" type="submit">修改密码</button></form></article>
+          <article class="card"><div class="card-head"><div><p class="kicker">TOTP MFA</p><h2>多因素认证</h2></div></div>
+            <div id="mfaDisabledState"><p class="card-copy">启用后，只有密码验证成功时登录页才会要求输入 6 位动态验证码。</p><button id="setupMfa" class="button primary">开始配置 MFA</button></div>
+            <div id="mfaSetup" hidden><div class="mfa-setup"><img id="mfaQr" alt="MFA 二维码"><div><label>手动密钥<input id="mfaSecret" readonly></label><label>6 位验证码<input id="mfaEnableCode" inputmode="numeric" maxlength="6"></label><button id="enableMfa" class="button primary">验证并启用</button></div></div></div>
+            <div id="mfaEnabledState" hidden><div class="enabled-banner"><span>✓</span><div><strong>MFA 已启用</strong><small>登录时需要密码和动态验证码</small></div></div><div class="form-grid"><label>当前密码<input id="disableMfaPassword" type="password"></label><label>当前验证码<input id="disableMfaCode" inputmode="numeric" maxlength="6"></label><button id="disableMfa" class="button danger" type="button">关闭 MFA</button></div></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="auditPage" class="page" hidden><div class="page-intro"><div><h2>审计日志</h2><p>最近 200 条管理操作与登录事件。</p></div><button id="refreshAudit" class="button ghost">刷新</button></div><div id="auditList" class="table-card"></div></section>
+
+      <section id="logsPage" class="page" hidden><div class="page-intro"><div><h2>运行日志</h2><p>分类查看管理 API 请求和 CrossPaste 同步协议请求。</p></div><div class="log-actions"><button id="refreshLogs" class="button ghost">刷新</button></div></div><div class="log-toolbar"><div id="logCategory" class="segmented"><button class="active" data-log-category="api">API 日志 <span id="apiLogCount">0</span></button><button data-log-category="sync">同步日志 <span id="syncLogCount">0</span></button></div><select id="logStatus"><option value="all">全部状态</option><option value="success">成功请求</option><option value="error">异常请求</option></select></div><div class="log-table"><div class="log-head"><span>状态</span><span>请求</span><span>客户端 / 目标</span><span>来源</span><span>耗时</span><span>时间</span></div><div id="requestLogList"></div></div></section>
+    </main>
+  </div>
+  <script src="/admin/app.js"></script>
+</body>
+</html>

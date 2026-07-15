@@ -1,10 +1,10 @@
-//! Minimal reference agent: dials the relay tunnel and answers proxied HTTP
+//! Minimal reference agent: dials the server tunnel and answers proxied HTTP
 //! by forwarding them to a local CrossPaste paste server (default 127.0.0.1:port).
 //!
 //! This is a development aid — production clients should embed the tunnel in-app.
 //!
 //! Usage:
-//!   cargo run --bin relay_agent_example -- \
+//!   cargo run --bin server_agent_example -- \
 //!     --relay ws://127.0.0.1:39445/v1/tunnel \
 //!     --app-instance-id my-device \
 //!     --local-base http://127.0.0.1:13129
@@ -84,20 +84,20 @@ async fn main() -> Result<()> {
     }
 
     println!("connecting to {url}");
-    let (ws, _) = connect_async(&url).await.context("connect relay")?;
+    let (ws, _) = connect_async(&url).await.context("connect server")?;
     let (mut write, mut read) = ws.split();
+    let client = reqwest::Client::new();
+    let local_sync_info = fetch_local_sync_info(&client, &args.local_base).await.ok();
 
     let hello = TunnelFrame::Hello {
         app_instance_id: args.app_instance_id.clone(),
         device_name: Some(args.device_name.clone()),
         app_version: Some(env!("CARGO_PKG_VERSION").into()),
-        sync_info_b64: None,
+        sync_info_b64: local_sync_info,
     };
     write
         .send(Message::Text(serde_json::to_string(&hello)?.into()))
         .await?;
-
-    let client = reqwest::Client::new();
 
     while let Some(msg) = read.next().await {
         let msg = msg?;
@@ -159,12 +159,24 @@ async fn main() -> Result<()> {
                     .await?;
             }
             TunnelFrame::Error { message } => {
-                eprintln!("relay error: {message}");
+                eprintln!("server error: {message}");
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+async fn fetch_local_sync_info(client: &reqwest::Client, base: &str) -> Result<String> {
+    let url = format!("{}/sync/syncInfo", base.trim_end_matches('/'));
+    let bytes = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    Ok(B64.encode(bytes))
 }
 
 async fn forward_local(

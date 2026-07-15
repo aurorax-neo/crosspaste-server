@@ -1,13 +1,21 @@
+mod admin;
 mod auth;
 mod config;
+mod database;
+mod discovery;
 mod error;
+mod hub;
 mod protocol;
 mod proxy;
+mod qr;
 mod registry;
 mod routes;
+mod secure;
+mod sync_info;
 mod tunnel;
 
 use crate::config::Config;
+use crate::database::Database;
 use crate::registry::Registry;
 use crate::routes::build_router;
 use crate::tunnel::AppState;
@@ -19,6 +27,7 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
     let config = Config::parse();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(&config.log))
@@ -27,10 +36,15 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Arc::new(config);
+    let database = Database::open(&config.data_dir)?;
     let registry = Registry::new(config.clone());
+    let _discovery_handle = discovery::start_mdns(config.clone())?;
+    let hub = hub::Hub::load_or_create(&config.data_dir, database.clone())?;
     let state = AppState {
         registry: registry.clone(),
         config: config.clone(),
+        hub,
+        database,
     };
 
     // Background GC
@@ -50,11 +64,14 @@ async fn main() -> anyhow::Result<()> {
         listen = %config.listen,
         auth = config.auth_required(),
         version = env!("CARGO_PKG_VERSION"),
-        "crosspaste-relay started (pure relay, no payload decryption)"
+        "crosspaste-server started (central hub)"
     );
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 

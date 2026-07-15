@@ -4,9 +4,7 @@
 //! Response status/headers/body from the target device are returned as-is.
 
 use crate::error::{RelayError, RelayResult};
-use crate::protocol::{
-    TunnelFrame, HEADER_APP_INSTANCE_ID, HEADER_TARGET_APP_INSTANCE_ID,
-};
+use crate::protocol::{TunnelFrame, HEADER_APP_INSTANCE_ID, HEADER_TARGET_APP_INSTANCE_ID};
 use crate::registry::Registry;
 use axum::body::Body;
 use axum::extract::Request;
@@ -83,8 +81,7 @@ pub async fn proxy_to_device(
                 warn!(%err, "device reported proxy error");
                 return Err(RelayError::Internal(err));
             }
-            let status = StatusCode::from_u16(status)
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
             let body = match body_b64 {
                 Some(b) => B64
                     .decode(b.as_bytes())
