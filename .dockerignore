@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+!.env.demo
+target
+data
+dist
+package
+crosspaste-desktop
+**/*.rs.bk
+.DS_Store
+*.md
+!README.md

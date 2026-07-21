@@ -1,0 +1,19 @@
+services:
+  crosspaste-server:
+    # Local default: build from Dockerfile.
+    # Production example:
+    #   IMAGE=ghcr.io/<owner>/crosspaste-server:0.1.0 docker compose up -d
+    image: ${IMAGE:-crosspaste-server:0.1.0}
+    build: .
+    ports:
+      - "39445:39445"
+    environment:
+      CROSSPASTE_SERVER_LISTEN: 0.0.0.0:39445
+      CROSSPASTE_SERVER_DATA_DIR: /data
+      RUST_LOG: info,crosspaste_server=info
+    volumes:
+      - crosspaste-data:/data
+    restart: unless-stopped
+
+volumes:
+  crosspaste-data:

@@ -23,14 +23,13 @@ Rust 实现的 CrossPaste 兼容中心服务端。目标不是让客户端互相
 ## 项目结构
 
 ```text
-src/main.rs          启动入口
-src/routes.rs        CrossPaste HTTP 路由与调试 API
-src/hub.rs           中心 Hub：配对、密钥、客户端状态、剪贴板广播
-src/secure.rs        P-256 ECDSA/ECDH 与 AES-CBC 加解密
-src/sync_info.rs     SyncInfo、mDNS TXT、二维码 payload
-src/discovery.rs     mDNS 广播
-config/              配置示例
-tests/               集成测试
+src/                 服务端源码（协议路由、Hub、SQLite、管理后台 API）
+assets/admin/        管理后台前端（构建时嵌入二进制）
+data/                运行时数据目录（SQLite / 图标 / 传输缓存，默认 gitignore）
+.env.demo            启动级配置示例
+Dockerfile           多架构镜像构建
+docker-compose.yml   本地/部署编排
+.github/workflows/   发布与 Docker 推送
 crosspaste-desktop/  原版协议参考源码
 ```
 
@@ -70,6 +69,39 @@ curl -H "x-crosspaste-server-token: $CROSSPASTE_SERVER_AUTH_TOKEN" \
 ```
 
 当前原版客户端正常配对时，服务端日志应依次出现 `/sync/telnet`、`/sync/trust/v2/exchange`、`/sync/trust/v2/confirm` 和 `/sync/heartbeat/syncInfo`。扫码添加使用 `/sync/trust`。其中 `/sync/telnet` 必须返回协议版本 `3`；未保存有效服务端密钥的客户端心跳会收到 `DECRYPT_FAIL(2008)`，随后重新进入验证码配对流程。
+
+
+
+## Docker
+
+本地构建并启动：
+
+```bash
+docker compose up -d --build
+```
+
+使用发布镜像（CI 推送到 GHCR 的标签为 `0.1.0` / `v0.1.0` / `latest`）：
+
+```bash
+docker pull ghcr.io/<owner>/crosspaste-server:0.1.0
+docker run --rm -p 39445:39445 -v crosspaste-data:/data ghcr.io/<owner>/crosspaste-server:0.1.0
+
+# 或通过 compose 指定镜像
+IMAGE=ghcr.io/<owner>/crosspaste-server:0.1.0 docker compose up -d
+```
+
+管理后台：`http://SERVER_HOST:39445/admin`
+
+默认会把 SQLite 与运行数据写到容器内 `/data`。
+
+## 发布
+
+推送到 `main`，或手动触发 `.github/workflows/release.yml`：
+
+1. 读取 `Cargo.toml` 版本
+2. 若 `vX.Y.Z` 尚未发布，则构建 Windows / Linux / macOS 二进制
+3. 构建并推送 `linux/amd64` + `linux/arm64` Docker 镜像到 GHCR
+4. 创建 GitHub Release，并附带二进制包
 
 ## 配置
 
