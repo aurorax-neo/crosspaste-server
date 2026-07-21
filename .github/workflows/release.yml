@@ -31,6 +31,7 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+          submodules: false
 
       - name: Read Cargo.toml
         id: meta
@@ -134,6 +135,7 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+          submodules: false
 
       - name: Install Rust target
         run: rustup target add ${{ matrix.target }}
@@ -230,6 +232,7 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+          submodules: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -286,6 +289,7 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+          submodules: false
 
       - name: Download artifacts
         uses: actions/download-artifact@v5
