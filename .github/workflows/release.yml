@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,13 +63,17 @@ jobs:
         id: release
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
 
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release_needed=false" >> "$GITHUB_OUTPUT"
             echo "Release ${TAG} already exists. Skip build and publish."
+          elif git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists. Skip build and publish."
           else
             echo "release_needed=true" >> "$GITHUB_OUTPUT"
             echo "Release ${TAG} does not exist. Build and publish."
@@ -139,40 +144,61 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
 
       - name: Package binary
-        shell: pwsh
+        shell: bash
         run: |
-          $packageName = "${{ needs.prepare.outputs.package_name }}"
-          $version = "${{ needs.prepare.outputs.version }}"
-          $target = "${{ matrix.target }}"
-          $label = "${{ matrix.label }}"
-          $exeSuffix = "${{ matrix.exe_suffix }}"
-          $archiveExt = "${{ matrix.archive_ext }}"
+          set -euo pipefail
 
-          $binary = Join-Path "target/$target/release" "$packageName$exeSuffix"
-          if (!(Test-Path $binary)) {
-            throw "Binary not found: $binary"
-          }
+          package_name='${{ needs.prepare.outputs.package_name }}'
+          version='${{ needs.prepare.outputs.version }}'
+          target='${{ matrix.target }}'
+          label='${{ matrix.label }}'
+          exe_suffix='${{ matrix.exe_suffix }}'
+          archive_ext='${{ matrix.archive_ext }}'
 
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          New-Item -ItemType Directory -Force -Path package | Out-Null
+          binary="target/${target}/release/${package_name}${exe_suffix}"
+          if [[ ! -f "$binary" ]]; then
+            echo "Binary not found: $binary" >&2
+            ls -la "target/${target}/release" || true
+            exit 1
+          fi
 
-          $binaryName = "$packageName-$label$exeSuffix"
-          Copy-Item $binary (Join-Path package $binaryName)
-          Copy-Item README.md package/README.md
-          if (Test-Path .env.demo) {
-            Copy-Item .env.demo package/.env.demo
-          }
+          rm -rf dist package
+          mkdir -p dist package
 
-          $assetBase = "$packageName-v$version-$label"
-          if ($archiveExt -eq "zip") {
-            $asset = "dist/$assetBase.zip"
-            Compress-Archive -Path package/* -DestinationPath $asset -Force
-          } else {
-            $asset = "dist/$assetBase.tar.gz"
-            tar -czf $asset -C package .
-          }
+          binary_name="${package_name}-${label}${exe_suffix}"
+          cp "$binary" "package/${binary_name}"
+          cp README.md package/README.md
+          if [[ -f .env.demo ]]; then
+            cp .env.demo package/.env.demo
+          fi
 
-          "asset=$asset" >> $env:GITHUB_ENV
+          asset_base="${package_name}-v${version}-${label}"
+          if [[ "$archive_ext" == "zip" ]]; then
+            asset="dist/${asset_base}.zip"
+            if command -v zip >/dev/null 2>&1; then
+              (cd package && zip -qr "../${asset}" .)
+            elif command -v powershell.exe >/dev/null 2>&1; then
+              powershell.exe -NoProfile -Command "Compress-Archive -Path 'package/*' -DestinationPath '${asset}' -Force"
+            elif command -v pwsh >/dev/null 2>&1; then
+              pwsh -NoProfile -Command "Compress-Archive -Path 'package/*' -DestinationPath '${asset}' -Force"
+            else
+              echo "No zip tool available" >&2
+              exit 1
+            fi
+          else
+            asset="dist/${asset_base}.tar.gz"
+            tar -czf "$asset" -C package .
+          fi
+
+          if [[ ! -f "$asset" ]]; then
+            echo "Asset not created: $asset" >&2
+            exit 1
+          fi
+
+          {
+            echo "asset=${asset}"
+          } >> "$GITHUB_ENV"
+          ls -lh "$asset"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -180,6 +206,8 @@ jobs:
           name: ${{ needs.prepare.outputs.package_name }}-${{ matrix.label }}
           path: ${{ env.asset }}
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   docker:
     name: Build and push Docker image
@@ -232,19 +260,42 @@ jobs:
       - prepare
       - build
       - docker
-    if: needs.prepare.outputs.release_needed == 'true'
+    if: |
+      always() &&
+      needs.prepare.outputs.release_needed == 'true' &&
+      needs.prepare.result == 'success' &&
+      needs.docker.result == 'success' &&
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: ${{ needs.prepare.outputs.package_name }}-*
           merge-multiple: true
+          # Fail fast with a clear error if build jobs did not upload assets.
+          if-no-files-found: error
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Workspace tree:"
+          find . -maxdepth 3 -type f | sort | sed -n '1,200p'
+          echo "Downloaded assets:"
+          find dist -type f -print | sort
+          count="$(find dist -type f | wc -l | tr -d ' ')"
+          if [[ "$count" -lt 1 ]]; then
+            echo "No release assets downloaded" >&2
+            exit 1
+          fi
 
       - name: Create or update release
         env:
@@ -253,12 +304,14 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           PACKAGE_NAME: ${{ needs.prepare.outputs.package_name }}
           IMAGE_NAME: ${{ needs.prepare.outputs.image_name }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-            git tag "$TAG"
-            git push origin "$TAG"
+          mapfile -t assets < <(find dist -type f | sort)
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No assets found under dist/" >&2
+            exit 1
           fi
 
           notes_file="$(mktemp)"
@@ -284,11 +337,13 @@ jobs:
             echo "Multi-platform archives are attached below."
           } > "$notes_file"
 
+          # Create/update release via GitHub API so we do not rely on repository git credentials.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --notes-file "$notes_file"
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            gh release edit "$TAG" --notes-file "$notes_file" --target "$TARGET_SHA"
           else
-            gh release create "$TAG" dist/* \
+            gh release create "$TAG" "${assets[@]}" \
               --title "${PACKAGE_NAME} ${VERSION}" \
-              --notes-file "$notes_file"
+              --notes-file "$notes_file" \
+              --target "$TARGET_SHA"
           fi
