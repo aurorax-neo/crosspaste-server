@@ -261,34 +261,34 @@ jobs:
             git push origin "$TAG"
           fi
 
-          notes="$(cat <<EOF
-Automated release for ${PACKAGE_NAME} ${VERSION}.
-
-## Docker
-
-\`\`\`bash
-docker pull ${IMAGE_NAME}:${VERSION}
-docker run --rm -p 39445:39445 -v crosspaste-data:/data ${IMAGE_NAME}:${VERSION}
-\`\`\`
-
-Images:
-- \`${IMAGE_NAME}:${VERSION}\`
-- \`${IMAGE_NAME}:${TAG}\`
-- \`${IMAGE_NAME}:latest\`
-
-Platforms: \`linux/amd64\`, \`linux/arm64\`
-
-## Binaries
-
-Multi-platform archives are attached below.
-EOF
-)"
+          notes_file="$(mktemp)"
+          {
+            echo "Automated release for ${PACKAGE_NAME} ${VERSION}."
+            echo
+            echo "## Docker"
+            echo
+            echo '```bash'
+            echo "docker pull ${IMAGE_NAME}:${VERSION}"
+            echo "docker run --rm -p 39445:39445 -v crosspaste-data:/data ${IMAGE_NAME}:${VERSION}"
+            echo '```'
+            echo
+            echo "Images:"
+            echo "- \`${IMAGE_NAME}:${VERSION}\`"
+            echo "- \`${IMAGE_NAME}:${TAG}\`"
+            echo "- \`${IMAGE_NAME}:latest\`"
+            echo
+            echo "Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            echo
+            echo "## Binaries"
+            echo
+            echo "Multi-platform archives are attached below."
+          } > "$notes_file"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --notes "$notes"
+            gh release edit "$TAG" --notes-file "$notes_file"
           else
             gh release create "$TAG" dist/* \
               --title "${PACKAGE_NAME} ${VERSION}" \
-              --notes "$notes"
+              --notes-file "$notes_file"
           fi
